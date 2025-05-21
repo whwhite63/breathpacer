@@ -34,7 +34,7 @@
 <div id="panel">
   <div class="slider"><label>Initial Period: <span id="initVal">10</span>s</label><input id="initRange" type="range" min="1" max="60" value="10"></div>
   <div class="slider"><label>Final Period: <span id="finalVal">60</span>s</label><input id="finalRange" type="range" min="15" max="60" value="60"></div>
-  <div class="slider"><label>Ramp Time: <span id="rampVal">15</span> min</label><input id="rampRange" type="range" min="1" max="60" value="15"></div>
+  <div class="slider"><label>Ramp Time: <span id="rampVal">30</span> min</label><input id="rampRange" type="range" min="1" max="60" value="30"></div>
   <button id="pauseBtn">Pause</button><button id="stopBtn">Stop</button>
 </div>
 <script>
@@ -49,7 +49,7 @@ if ("serviceWorker" in navigator) {
 /* ───────── parameters ───────── */
 let INIT_T  = 10;  // seconds
 let FINAL_T = 60;  // seconds
-let RAMP_M  = 15;  // minutes (linear ramp duration)
+let RAMP_M  = 30;  // minutes (linear ramp duration)
 /* ────────────────────────────── */
 
 /* DOM refs */
