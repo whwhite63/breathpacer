@@ -63,6 +63,12 @@ const noSleep=new NoSleep();
 
 /* canvas fit */
 let amp=0,yC=0;function fit(){cvs.width=innerWidth;cvs.height=innerHeight;amp=cvs.height*0.30;yC=cvs.height/2;}fit();addEventListener('resize',fit,false);
+// Fix for iOS PWA launch viewport issues
+window.addEventListener('load', () => {
+  setTimeout(() => {
+    window.dispatchEvent(new Event('resize'));
+  }, 100);
+});
 
 /* LINEAR ramp sequence generator */
 function buildPeriodsLinear(a1, an, rampSecs){
