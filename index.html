@@ -12,19 +12,26 @@
 
 <meta charset="utf-8">
 <title>Breath‑Pacing Sine Wave</title>
-<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="apple-touch-icon" href="./icon-192.png">
 <style>
-  html,body{margin:0;height:100%;background:#000;color:#fff;font-family:sans-serif;overflow:hidden}
+  html,body{margin:0;height:100%;background:#000;color:#fff;font-family:-apple-system,sans-serif;overflow:hidden;touch-action:manipulation;-webkit-user-select:none;user-select:none}
   canvas{display:block}
   #hud,#startBtn,#panel{position:fixed;z-index:1000}
-  #hud{top:0;left:0;padding:8px 12px;pointer-events:none}
-  #hud div{line-height:1.2em}
+  #hud{top:0;left:0;padding:calc(8px + env(safe-area-inset-top,0px)) 12px 8px 12px;pointer-events:none;font-size:14px;color:#9fb3c8}
+  #hud div{line-height:1.35em}
   #startBtn{top:50%;left:50%;transform:translate(-50%,-50%);font-size:22px;padding:14px 28px;border:0;border-radius:10px;background:#0a84ff;color:#fff}
-  #panel{bottom:0;left:0;right:0;background:#111a;border-top:1px solid #333;padding:10px 12px 16px 12px;display:none}
-  .slider{margin:10px 0}
-  .slider label{display:block;font-size:16px;margin-bottom:4px}
+  #panel{bottom:0;left:0;right:0;background:rgba(13,18,25,.94);-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);border-top:1px solid #2a3648;padding:10px 14px calc(14px + env(safe-area-inset-bottom,0px)) 14px;display:none;max-height:75vh;overflow-y:auto}
+  .slider{margin:9px 0}
+  .slider label{display:block;font-size:15px;margin-bottom:2px;color:#cfe0f0}
   .slider input[type=range]{width:100%}
-  #pauseBtn,#stopBtn{font-size:18px;padding:8px 20px;border:0;border-radius:10px;background:#0a84ff;color:#fff;margin:10px 8px 0 0}
+  .row{display:flex;align-items:center;gap:10px;margin:10px 0;font-size:15px;color:#cfe0f0}
+  .row select{font-size:15px;padding:5px 8px;background:#1c2734;color:#fff;border:1px solid #33465c;border-radius:8px}
+  .switch input{width:22px;height:22px;accent-color:#0a84ff}
+  #pauseBtn,#stopBtn{font-size:17px;padding:9px 22px;border:0;border-radius:10px;background:#0a84ff;color:#fff;margin:10px 8px 0 0}
+  #stopBtn{background:#3a3f47}
+  .hidden{display:none !important}
 </style>
 </head>
 <body>
@@ -32,9 +39,17 @@
 <div id="hud"><div id="elapsed"></div><div id="period"></div></div>
 <button id="startBtn">Start session</button>
 <div id="panel">
-  <div class="slider"><label>Initial Period: <span id="initVal">10</span>s</label><input id="initRange" type="range" min="1" max="60" value="10"></div>
-  <div class="slider"><label>Final Period: <span id="finalVal">45</span>s</label><input id="finalRange" type="range" min="15" max="60" value="45"></div>
-  <div class="slider"><label>Ramp Time: <span id="rampVal">30</span> min</label><input id="rampRange" type="range" min="1" max="60" value="30"></div>
+  <div class="slider" id="fixedRow"><label>Period: <span id="fixedVal">15</span>s</label><input id="fixedRange" type="range" min="4" max="60" value="15"></div>
+  <div class="row switch"><input id="sweepChk" type="checkbox"><label for="sweepChk">Sweep period (ramp up over time)</label></div>
+  <div class="slider sweepRow"><label>Initial Period: <span id="initVal">10</span>s</label><input id="initRange" type="range" min="1" max="60" value="10"></div>
+  <div class="slider sweepRow"><label>Final Period: <span id="finalVal">45</span>s</label><input id="finalRange" type="range" min="8" max="60" value="45"></div>
+  <div class="slider sweepRow"><label>Ramp Time: <span id="rampVal">30</span> min</label><input id="rampRange" type="range" min="1" max="60" value="30"></div>
+  <div class="slider"><label>Inhale : Exhale — <span id="ratioVal">1:1</span></label><input id="ratioRange" type="range" min="0" max="8" value="4"></div>
+  <div class="row"><label for="cueSel">Cue</label>
+    <select id="cueSel"><option value="0">Off</option><option value="1">Inhale</option><option value="2">Inhale + Exhale</option></select>
+    <label for="vizSel" style="margin-left:auto">View</label>
+    <select id="vizSel"><option value="wave">Wave</option><option value="circle">Circle</option></select>
+  </div>
   <button id="pauseBtn">Pause</button><button id="stopBtn">Stop</button>
 </div>
 <script>
@@ -46,23 +61,55 @@ if ("serviceWorker" in navigator) {
   navigator.serviceWorker.register("./service-worker.js");
 }
 
-/* ───────── parameters ───────── */
-let INIT_T  = 10;  // seconds
-let FINAL_T = 45;  // seconds
-let RAMP_M  = 30;  // minutes (linear ramp duration)
-/* ────────────────────────────── */
+/* ───────── settings (persisted) ───────── */
+const RATIOS=[[1,4],[1,3],[1,2],[2,3],[1,1],[3,2],[2,1],[3,1],[4,1]]; // inhale:exhale
+const S={
+  sweep:false,   // period sweep off by default — fixed period
+  fixedT:15,     // fixed period (s)
+  initT:10, finalT:45, rampM:30,   // sweep parameters
+  ratioIdx:4,    // index into RATIOS (4 → 1:1)
+  cueMode:1,     // 0 off, 1 inhale, 2 inhale+exhale
+  viz:'wave'     // 'wave' | 'circle'
+};
+try{
+  const saved=JSON.parse(localStorage.getItem('bp-settings')||'{}');
+  for(const k in S)if(k in saved)S[k]=saved[k];
+  S.fixedT=Math.min(60,Math.max(4,+S.fixedT||15));
+  S.initT=Math.min(60,Math.max(1,+S.initT||10));
+  S.finalT=Math.min(60,Math.max(8,+S.finalT||45));
+  S.rampM=Math.min(60,Math.max(1,+S.rampM||30));
+  S.ratioIdx=Math.min(RATIOS.length-1,Math.max(0,Math.round(+S.ratioIdx)||4));
+  S.cueMode=[0,1,2].includes(+S.cueMode)?+S.cueMode:1;
+  if(!['wave','circle'].includes(S.viz))S.viz='wave';
+}catch(e){}
+function saveS(){try{localStorage.setItem('bp-settings',JSON.stringify(S));}catch(e){}}
+function inhaleFrac(){const [i,e]=RATIOS[S.ratioIdx];return i/(i+e);}
+function ratioLabel(){const [i,e]=RATIOS[S.ratioIdx];return `${i}:${e}`;}
 
 /* DOM refs */
 const cvs = document.getElementById('c'), ctx = cvs.getContext('2d');
 const hudElapsed=document.getElementById('elapsed'), hudPeriod=document.getElementById('period');
 const startBtn=document.getElementById('startBtn'), panel=document.getElementById('panel');
 const pauseBtn=document.getElementById('pauseBtn'), stopBtn=document.getElementById('stopBtn');
+const sweepChk=document.getElementById('sweepChk'), fixedRow=document.getElementById('fixedRow');
+const fixedRange=document.getElementById('fixedRange'), fixedVal=document.getElementById('fixedVal');
 const initRange=document.getElementById('initRange'), finalRange=document.getElementById('finalRange'), rampRange=document.getElementById('rampRange');
 const initVal=document.getElementById('initVal'), finalVal=document.getElementById('finalVal'), rampVal=document.getElementById('rampVal');
+const ratioRange=document.getElementById('ratioRange'), ratioVal=document.getElementById('ratioVal');
+const cueSel=document.getElementById('cueSel'), vizSel=document.getElementById('vizSel');
 const noSleep=new NoSleep();
 
-/* canvas fit */
-let amp=0,yC=0;function fit(){cvs.width=innerWidth;cvs.height=innerHeight;amp=cvs.height*0.30;yC=cvs.height/2;}fit();addEventListener('resize',fit,false);
+/* canvas fit (Hi-DPI aware) */
+let W=0,H=0,amp=0,yC=0;
+function fit(){
+  const dpr=Math.min(2,window.devicePixelRatio||1);
+  W=innerWidth;H=innerHeight;
+  cvs.width=W*dpr;cvs.height=H*dpr;
+  cvs.style.width=W+'px';cvs.style.height=H+'px';
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  amp=H*0.30;yC=H/2;
+}
+fit();addEventListener('resize',fit,false);
 // Fix for iOS PWA launch viewport issues
 window.addEventListener('load', () => {
   setTimeout(() => {
@@ -80,7 +127,44 @@ function buildPeriodsLinear(a1, an, rampSecs){
   seq.push(an); // repeat final period for indefinite hold
   return [seq,cum];
 }
-let periods=[],cumTimes=[];function rebuild(){[periods,cumTimes]=buildPeriodsLinear(INIT_T,FINAL_T,RAMP_M*60);initVal.textContent=INIT_T;finalVal.textContent=FINAL_T;rampVal.textContent=RAMP_M;}rebuild();
+let periods=[],cumTimes=[];
+function rebuild(){
+  if(S.sweep){[periods,cumTimes]=buildPeriodsLinear(S.initT,S.finalT,S.rampM*60);}
+  else{periods=[S.fixedT];cumTimes=[S.fixedT];}
+  fixedVal.textContent=S.fixedT;initVal.textContent=S.initT;finalVal.textContent=S.finalT;rampVal.textContent=S.rampM;
+  ratioVal.textContent=ratioLabel();
+}
+
+/* asymmetric breath waveform: phase p∈[0,1) → value −1(bottom)…+1(top).
+   Inhale (rise) occupies the first `fi` of the cycle, exhale the rest;
+   cosine halves keep the velocity zero at both turning points. */
+function waveVal(p,fi){
+  return p<fi ? -Math.cos(Math.PI*p/fi) : Math.cos(Math.PI*(p-fi)/(1-fi));
+}
+
+/* audio + haptic cues */
+let audioCtx=null;
+function initAudio(){
+  try{
+    if(!audioCtx)audioCtx=new (window.AudioContext||window.webkitAudioContext)();
+    if(audioCtx.state==='suspended')audioCtx.resume();
+  }catch(e){console.warn(e.message);}
+}
+function cue(kind){
+  if(S.cueMode===0)return;
+  if(kind==='exhale'&&S.cueMode<2)return;
+  if(audioCtx&&audioCtx.state==='running'){
+    const t=audioCtx.currentTime;
+    const o=audioCtx.createOscillator(),g=audioCtx.createGain();
+    o.type='sine';o.frequency.value=kind==='inhale'?660:392;
+    g.gain.setValueAtTime(0.0001,t);
+    g.gain.exponentialRampToValueAtTime(0.30,t+0.02);
+    g.gain.exponentialRampToValueAtTime(0.0001,t+0.35);
+    o.connect(g);g.connect(audioCtx.destination);
+    o.start(t);o.stop(t+0.4);
+  }
+  if(navigator.vibrate)navigator.vibrate(kind==='inhale'?60:30); // no-op on iOS
+}
 
 /* wake‑lock */
 let wake=null;async function lockScreen(){try{if('wakeLock'in navigator){wake=await navigator.wakeLock.request('screen');}else{noSleep.enable();}}catch(e){console.warn(e.message);}}
@@ -88,15 +172,29 @@ let wake=null;async function lockScreen(){try{if('wakeLock'in navigator){wake=aw
 document.addEventListener('visibilitychange',()=>{if(wake&&document.visibilityState==='visible')lockScreen();});
 
 /* session state */
-let running=false,paused=false,startTime=0,pauseStart=0,pausedAccum=0,animationId=null;function restartTimeline(){startTime=performance.now()/1000;pausedAccum=0;}
+let running=false,paused=false,startTime=0,pauseStart=0,pausedAccum=0,animationId=null,lastP=null;
+function restartTimeline(){startTime=performance.now()/1000;pausedAccum=0;lastP=null;}
 
-/* sliders */
-initRange.oninput=()=>{INIT_T=+initRange.value;if(INIT_T>=FINAL_T){FINAL_T=Math.min(60,INIT_T+1);finalRange.value=FINAL_T;}rebuild();if(running)restartTimeline();};
-finalRange.oninput=()=>{FINAL_T=+finalRange.value;if(FINAL_T<=INIT_T){INIT_T=Math.max(1,FINAL_T-1);initRange.value=INIT_T;}rebuild();if(running)restartTimeline();};
-rampRange.oninput=()=>{RAMP_M=+rampRange.value;rebuild();if(running)restartTimeline();};
+/* controls */
+function syncControls(){
+  sweepChk.checked=S.sweep;
+  fixedRange.value=S.fixedT;initRange.value=S.initT;finalRange.value=S.finalT;rampRange.value=S.rampM;
+  ratioRange.value=S.ratioIdx;cueSel.value=String(S.cueMode);vizSel.value=S.viz;
+  fixedRow.classList.toggle('hidden',S.sweep);
+  document.querySelectorAll('.sweepRow').forEach(el=>el.classList.toggle('hidden',!S.sweep));
+}
+sweepChk.onchange=()=>{S.sweep=sweepChk.checked;syncControls();rebuild();saveS();if(running)restartTimeline();};
+fixedRange.oninput=()=>{S.fixedT=+fixedRange.value;rebuild();saveS();if(running)restartTimeline();};
+initRange.oninput=()=>{S.initT=+initRange.value;if(S.initT>=S.finalT){S.finalT=Math.min(60,S.initT+1);finalRange.value=S.finalT;}rebuild();saveS();if(running)restartTimeline();};
+finalRange.oninput=()=>{S.finalT=+finalRange.value;if(S.finalT<=S.initT){S.initT=Math.max(1,S.finalT-1);initRange.value=S.initT;}rebuild();saveS();if(running)restartTimeline();};
+rampRange.oninput=()=>{S.rampM=+rampRange.value;rebuild();saveS();if(running)restartTimeline();};
+ratioRange.oninput=()=>{S.ratioIdx=+ratioRange.value;ratioVal.textContent=ratioLabel();saveS();};
+cueSel.onchange=()=>{S.cueMode=+cueSel.value;saveS();if(S.cueMode)initAudio();};
+vizSel.onchange=()=>{S.viz=vizSel.value;saveS();};
+syncControls();rebuild();
 
 /* start */
-startBtn.onclick=()=>{startBtn.style.display='none';running=true;paused=false;restartTimeline();lockScreen();animationId=requestAnimationFrame(loop);};
+startBtn.onclick=()=>{initAudio();startBtn.style.display='none';running=true;paused=false;restartTimeline();lockScreen();cue('inhale');animationId=requestAnimationFrame(loop);};
 /* pause/resume */
 pauseBtn.onclick=()=>{if(!running)return;if(!paused){paused=true;pauseStart=performance.now()/1000;pauseBtn.textContent='Resume';}else{paused=false;pausedAccum+=performance.now()/1000-pauseStart;pauseBtn.textContent='Pause';animationId=requestAnimationFrame(loop);} };
 /* stop */
@@ -105,13 +203,85 @@ stopBtn.onclick=()=>{if(animationId)cancelAnimationFrame(animationId);running=fa
 /* panel toggle */
 let panelVisible=false;document.addEventListener('pointerdown',e=>{const inPanel=panel.contains(e.target),isCanvas=e.target===cvs;if(panelVisible&&!inPanel){panelVisible=false;panel.style.display='none';}else if(!panelVisible&&isCanvas&&running){panelVisible=true;panel.style.display='block';}},false);
 
-/* loop — continues indefinitely at FINAL_T */
+/* drawing */
+function breathGlow(b,hue){
+  const g=ctx.createRadialGradient(W/2,yC,0,W/2,yC,Math.max(W,H)*0.7);
+  g.addColorStop(0,`hsla(${hue},60%,45%,${0.08+0.16*b})`);
+  g.addColorStop(1,'rgba(0,0,0,0)');
+  ctx.fillStyle=g;ctx.fillRect(0,0,W,H);
+}
+function phaseLabel(p,fi,T,y){
+  const inh=p<fi;
+  const rem=Math.ceil((inh?(fi-p):(1-p))*T);
+  ctx.textAlign='center';
+  ctx.font='600 26px -apple-system,sans-serif';
+  ctx.fillStyle=inh?'rgba(120,235,190,0.9)':'rgba(140,180,255,0.9)';
+  ctx.fillText(`${inh?'Inhale':'Exhale'} · ${rem}`,W/2,y);
+}
+function drawWave(tIn,T,fi,v,p){
+  const inh=p<fi;
+  breathGlow((v+1)/2,inh?165:215);
+  const pts=[];
+  for(let x=0;x<=W;x+=2){
+    const ph=(((4*x/W+tIn/T)%1)+1)%1;
+    pts.push([x,yC-amp*waveVal(ph,fi)]);
+  }
+  // translucent fill under the curve
+  ctx.beginPath();ctx.moveTo(pts[0][0],pts[0][1]);
+  for(const [x,y] of pts)ctx.lineTo(x,y);
+  ctx.lineTo(W,H);ctx.lineTo(0,H);ctx.closePath();
+  const fg=ctx.createLinearGradient(0,yC-amp,0,H);
+  fg.addColorStop(0,'rgba(45,224,165,0.20)');fg.addColorStop(1,'rgba(45,224,165,0)');
+  ctx.fillStyle=fg;ctx.fill();
+  // glowing wave stroke
+  ctx.beginPath();ctx.moveTo(pts[0][0],pts[0][1]);
+  for(const [x,y] of pts)ctx.lineTo(x,y);
+  ctx.lineWidth=3;ctx.strokeStyle='#2de0a5';ctx.shadowColor='#2de0a5';ctx.shadowBlur=14;ctx.stroke();ctx.shadowBlur=0;
+  // centre guide
+  ctx.strokeStyle='rgba(255,255,255,0.10)';ctx.lineWidth=1;
+  ctx.beginPath();ctx.moveTo(W/2,yC-amp-16);ctx.lineTo(W/2,yC+amp+16);ctx.stroke();
+  // tracking dot with glow
+  const yDot=yC-amp*v;
+  const dg=ctx.createRadialGradient(W/2,yDot,0,W/2,yDot,26);
+  dg.addColorStop(0,'rgba(255,96,96,0.85)');dg.addColorStop(1,'rgba(255,96,96,0)');
+  ctx.fillStyle=dg;ctx.beginPath();ctx.arc(W/2,yDot,26,0,7);ctx.fill();
+  ctx.fillStyle='#ff6060';ctx.beginPath();ctx.arc(W/2,yDot,8,0,7);ctx.fill();
+  phaseLabel(p,fi,T,yC-amp-36);
+}
+function drawCircle(tIn,T,fi,v,p){
+  const inh=p<fi,b=(v+1)/2,hue=inh?165:215;
+  breathGlow(b,hue);
+  const rMax=Math.min(W,H)*0.36,rMin=rMax*0.25,r=rMin+(rMax-rMin)*b;
+  // faint reference ring at full size
+  ctx.strokeStyle='rgba(255,255,255,0.08)';ctx.lineWidth=1;
+  ctx.beginPath();ctx.arc(W/2,yC,rMax,0,7);ctx.stroke();
+  // breathing disc
+  const dg=ctx.createRadialGradient(W/2,yC,0,W/2,yC,r);
+  dg.addColorStop(0,`hsla(${hue},70%,60%,0.30)`);dg.addColorStop(1,`hsla(${hue},70%,60%,0.04)`);
+  ctx.fillStyle=dg;ctx.beginPath();ctx.arc(W/2,yC,r,0,7);ctx.fill();
+  ctx.lineWidth=4;ctx.strokeStyle=`hsl(${hue},75%,62%)`;ctx.shadowColor=`hsl(${hue},75%,62%)`;ctx.shadowBlur=22;
+  ctx.beginPath();ctx.arc(W/2,yC,r,0,7);ctx.stroke();ctx.shadowBlur=0;
+  phaseLabel(p,fi,T,yC-rMax-28);
+}
+
+/* loop — continues indefinitely at the final period */
 function loop(){if(paused||!running)return;animationId=requestAnimationFrame(loop);
   const now=performance.now()/1000,run=now-startTime-pausedAccum;
-  let idx=cumTimes.findIndex(c=>run<c);if(idx===-1)idx=periods.length-1;const T=periods[idx];const base=idx?cumTimes[idx-1]:0;const tIn=run-base;
-  ctx.clearRect(0,0,cvs.width,cvs.height);ctx.strokeStyle='#0f0';ctx.beginPath();for(let x=0;x<cvs.width;x++){const y=yC+amp*Math.sin(2*Math.PI*(4*x/cvs.width+tIn/T));x?ctx.lineTo(x,y):ctx.moveTo(x,y);}ctx.stroke();
-  const yDot=yC+amp*Math.sin(2*Math.PI*(tIn/T));ctx.fillStyle='#f00';ctx.beginPath();ctx.arc(cvs.width/2,yDot,8,0,7);ctx.fill();
-  hudElapsed.textContent=`Elapsed: ${Math.floor(run/60)} min`;hudPeriod.textContent=`Period: ${T.toFixed(1)} s`;}
+  let idx=cumTimes.findIndex(c=>run<c);if(idx===-1)idx=periods.length-1;
+  const T=periods[idx];const base=idx?cumTimes[idx-1]:0;const tIn=run-base;
+  const fi=inhaleFrac();
+  const p=(((tIn/T)%1)+1)%1;
+  const v=waveVal(p,fi);
+  if(lastP!==null){
+    if(p<lastP)cue('inhale');
+    else if(lastP<fi&&p>=fi)cue('exhale');
+  }
+  lastP=p;
+  ctx.clearRect(0,0,W,H);
+  if(S.viz==='circle')drawCircle(tIn,T,fi,v,p);else drawWave(tIn,T,fi,v,p);
+  const m=Math.floor(run/60),s=Math.floor(run%60);
+  hudElapsed.textContent=`Elapsed: ${m}:${String(s).padStart(2,'0')}`;
+  hudPeriod.textContent=`Period: ${T.toFixed(1)} s · In:Ex ${ratioLabel()}`;}
 </script>
 </body>
 </html>
