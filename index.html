@@ -18,10 +18,9 @@
 <style>
   html,body{margin:0;height:100%;background:#000;color:#fff;font-family:-apple-system,sans-serif;overflow:hidden;touch-action:manipulation;-webkit-user-select:none;user-select:none}
   canvas{display:block}
-  #hud,#startBtn,#panel{position:fixed;z-index:1000}
+  #hud,#panel{position:fixed;z-index:1000}
   #hud{top:0;left:0;padding:calc(8px + env(safe-area-inset-top,0px)) 12px 8px 12px;pointer-events:none;font-size:14px;color:#9fb3c8}
   #hud div{line-height:1.35em}
-  #startBtn{top:50%;left:50%;transform:translate(-50%,-50%);font-size:22px;padding:14px 28px;border:0;border-radius:10px;background:#0a84ff;color:#fff}
   #panel{bottom:0;left:0;right:0;background:rgba(13,18,25,.94);-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);border-top:1px solid #2a3648;padding:10px 14px calc(14px + env(safe-area-inset-bottom,0px)) 14px;display:none;max-height:75vh;overflow-y:auto}
   .slider{margin:9px 0}
   .slider label{display:block;font-size:15px;margin-bottom:2px;color:#cfe0f0}
@@ -37,20 +36,19 @@
 <body>
 <canvas id="c"></canvas>
 <div id="hud"><div id="elapsed"></div><div id="period"></div></div>
-<button id="startBtn">Start session</button>
 <div id="panel">
-  <div class="slider" id="fixedRow"><label>Period: <span id="fixedVal">15</span>s</label><input id="fixedRange" type="range" min="4" max="60" value="15"></div>
+  <div class="slider" id="fixedRow"><label>Period: <span id="fixedVal">15</span>s</label><input id="fixedRange" type="range" min="4" max="60" step="0.5" value="15"></div>
   <div class="row switch"><input id="sweepChk" type="checkbox"><label for="sweepChk">Sweep period (ramp up over time)</label></div>
-  <div class="slider sweepRow"><label>Initial Period: <span id="initVal">10</span>s</label><input id="initRange" type="range" min="1" max="60" value="10"></div>
-  <div class="slider sweepRow"><label>Final Period: <span id="finalVal">45</span>s</label><input id="finalRange" type="range" min="8" max="60" value="45"></div>
-  <div class="slider sweepRow"><label>Ramp Time: <span id="rampVal">30</span> min</label><input id="rampRange" type="range" min="1" max="60" value="30"></div>
-  <div class="slider"><label>Inhale : Exhale — <span id="ratioVal">1:1</span></label><input id="ratioRange" type="range" min="0" max="8" value="4"></div>
+  <div class="slider sweepRow"><label>Initial Period: <span id="initVal">10</span>s</label><input id="initRange" type="range" min="1" max="60" step="0.5" value="10"></div>
+  <div class="slider sweepRow"><label>Final Period: <span id="finalVal">45</span>s</label><input id="finalRange" type="range" min="8" max="60" step="0.5" value="45"></div>
+  <div class="slider sweepRow"><label>Ramp Time: <span id="rampVal">10</span> min</label><input id="rampRange" type="range" min="1" max="60" value="10"></div>
+  <div class="slider"><label>Inhale : Exhale — <span id="ratioVal">1:2</span></label><input id="ratioRange" type="range" min="0" max="8" value="2"></div>
   <div class="row"><label for="cueSel">Cue</label>
     <select id="cueSel"><option value="0">Off</option><option value="1">Inhale</option><option value="2">Inhale + Exhale</option></select>
     <label for="vizSel" style="margin-left:auto">View</label>
     <select id="vizSel"><option value="wave">Wave</option><option value="circle">Circle</option></select>
   </div>
-  <button id="pauseBtn">Pause</button><button id="stopBtn">Stop</button>
+  <button id="pauseBtn">Start</button><button id="stopBtn">Stop</button>
 </div>
 <script>
 /*! NoSleep.min.js v0.12.0 - git.io/vfn01 - Rich Tibbett - MIT license */
@@ -66,8 +64,8 @@ const RATIOS=[[1,4],[1,3],[1,2],[2,3],[1,1],[3,2],[2,1],[3,1],[4,1]]; // inhale:
 const S={
   sweep:false,   // period sweep off by default — fixed period
   fixedT:15,     // fixed period (s)
-  initT:10, finalT:45, rampM:30,   // sweep parameters
-  ratioIdx:4,    // index into RATIOS (4 → 1:1)
+  initT:10, finalT:45, rampM:10,   // sweep parameters
+  ratioIdx:2,    // index into RATIOS (2 → 1:2)
   cueMode:1,     // 0 off, 1 inhale, 2 inhale+exhale
   viz:'wave'     // 'wave' | 'circle'
 };
@@ -77,8 +75,8 @@ try{
   S.fixedT=Math.min(60,Math.max(4,+S.fixedT||15));
   S.initT=Math.min(60,Math.max(1,+S.initT||10));
   S.finalT=Math.min(60,Math.max(8,+S.finalT||45));
-  S.rampM=Math.min(60,Math.max(1,+S.rampM||30));
-  S.ratioIdx=Math.min(RATIOS.length-1,Math.max(0,Math.round(+S.ratioIdx)||4));
+  S.rampM=Math.min(60,Math.max(1,+S.rampM||10));
+  const ri=Math.round(+S.ratioIdx);S.ratioIdx=(ri>=0&&ri<RATIOS.length)?ri:2;
   S.cueMode=[0,1,2].includes(+S.cueMode)?+S.cueMode:1;
   if(!['wave','circle'].includes(S.viz))S.viz='wave';
 }catch(e){}
@@ -89,7 +87,7 @@ function ratioLabel(){const [i,e]=RATIOS[S.ratioIdx];return `${i}:${e}`;}
 /* DOM refs */
 const cvs = document.getElementById('c'), ctx = cvs.getContext('2d');
 const hudElapsed=document.getElementById('elapsed'), hudPeriod=document.getElementById('period');
-const startBtn=document.getElementById('startBtn'), panel=document.getElementById('panel');
+const panel=document.getElementById('panel');
 const pauseBtn=document.getElementById('pauseBtn'), stopBtn=document.getElementById('stopBtn');
 const sweepChk=document.getElementById('sweepChk'), fixedRow=document.getElementById('fixedRow');
 const fixedRange=document.getElementById('fixedRange'), fixedVal=document.getElementById('fixedVal');
@@ -183,25 +181,37 @@ function syncControls(){
   fixedRow.classList.toggle('hidden',S.sweep);
   document.querySelectorAll('.sweepRow').forEach(el=>el.classList.toggle('hidden',!S.sweep));
 }
-sweepChk.onchange=()=>{S.sweep=sweepChk.checked;syncControls();rebuild();saveS();if(running)restartTimeline();};
-fixedRange.oninput=()=>{S.fixedT=+fixedRange.value;rebuild();saveS();if(running)restartTimeline();};
-initRange.oninput=()=>{S.initT=+initRange.value;if(S.initT>=S.finalT){S.finalT=Math.min(60,S.initT+1);finalRange.value=S.finalT;}rebuild();saveS();if(running)restartTimeline();};
-finalRange.oninput=()=>{S.finalT=+finalRange.value;if(S.finalT<=S.initT){S.initT=Math.max(1,S.finalT-1);initRange.value=S.initT;}rebuild();saveS();if(running)restartTimeline();};
+sweepChk.onchange=()=>{S.sweep=sweepChk.checked;syncControls();rebuild();saveS();if(running)restartTimeline();else drawIdle();};
+fixedRange.oninput=()=>{S.fixedT=+fixedRange.value;rebuild();saveS();if(running)restartTimeline();else drawIdle();};
+initRange.oninput=()=>{S.initT=+initRange.value;if(S.initT>=S.finalT){S.finalT=Math.min(60,S.initT+1);finalRange.value=S.finalT;}rebuild();saveS();if(running)restartTimeline();else drawIdle();};
+finalRange.oninput=()=>{S.finalT=+finalRange.value;if(S.finalT<=S.initT){S.initT=Math.max(1,S.finalT-1);initRange.value=S.initT;}rebuild();saveS();if(running)restartTimeline();else drawIdle();};
 rampRange.oninput=()=>{S.rampM=+rampRange.value;rebuild();saveS();if(running)restartTimeline();};
-ratioRange.oninput=()=>{S.ratioIdx=+ratioRange.value;ratioVal.textContent=ratioLabel();saveS();};
+ratioRange.oninput=()=>{S.ratioIdx=+ratioRange.value;ratioVal.textContent=ratioLabel();saveS();if(!running)drawIdle();};
 cueSel.onchange=()=>{S.cueMode=+cueSel.value;saveS();if(S.cueMode)initAudio();};
-vizSel.onchange=()=>{S.viz=vizSel.value;saveS();};
+vizSel.onchange=()=>{S.viz=vizSel.value;saveS();if(!running)drawIdle();};
 syncControls();rebuild();
 
-/* start */
-startBtn.onclick=()=>{initAudio();startBtn.style.display='none';running=true;paused=false;restartTimeline();lockScreen();cue('inhale');animationId=requestAnimationFrame(loop);};
-/* pause/resume */
-pauseBtn.onclick=()=>{if(!running)return;if(!paused){paused=true;pauseStart=performance.now()/1000;pauseBtn.textContent='Resume';}else{paused=false;pausedAccum+=performance.now()/1000-pauseStart;pauseBtn.textContent='Pause';animationId=requestAnimationFrame(loop);} };
+/* start / pause / resume — one button */
+function hidePanel(){panelVisible=false;panel.style.display='none';}
+function showPanel(){panelVisible=true;panel.style.display='block';}
+pauseBtn.onclick=()=>{
+  if(!running){ // start a session
+    initAudio();running=true;paused=false;restartTimeline();lockScreen();
+    pauseBtn.textContent='Pause';hidePanel();cue('inhale');
+    animationId=requestAnimationFrame(loop);
+  }else if(!paused){ // pause
+    paused=true;pauseStart=performance.now()/1000;pauseBtn.textContent='Start';
+  }else{ // resume
+    paused=false;pausedAccum+=performance.now()/1000-pauseStart;
+    pauseBtn.textContent='Pause';hidePanel();
+    animationId=requestAnimationFrame(loop);
+  }
+};
 /* stop */
-stopBtn.onclick=()=>{if(animationId)cancelAnimationFrame(animationId);running=false;paused=false;panelVisible=false;panel.style.display='none';startBtn.textContent='Restart session';startBtn.style.display='block';};
+stopBtn.onclick=()=>{if(animationId)cancelAnimationFrame(animationId);running=false;paused=false;pauseBtn.textContent='Start';showPanel();drawIdle();};
 
 /* panel toggle */
-let panelVisible=false;document.addEventListener('pointerdown',e=>{const inPanel=panel.contains(e.target),isCanvas=e.target===cvs;if(panelVisible&&!inPanel){panelVisible=false;panel.style.display='none';}else if(!panelVisible&&isCanvas&&running){panelVisible=true;panel.style.display='block';}},false);
+let panelVisible=false;document.addEventListener('pointerdown',e=>{const inPanel=panel.contains(e.target),isCanvas=e.target===cvs;if(panelVisible&&!inPanel){panelVisible=false;panel.style.display='none';}else if(!panelVisible&&isCanvas){panelVisible=true;panel.style.display='block';}},false);
 
 /* drawing */
 function breathGlow(b,hue){
@@ -263,6 +273,12 @@ function drawCircle(tIn,T,fi,v,p){
   ctx.beginPath();ctx.arc(W/2,yC,r,0,7);ctx.stroke();ctx.shadowBlur=0;
   phaseLabel(p,fi,T,yC-rMax-28);
 }
+/* static preview while no session is running */
+function drawIdle(){
+  const T=S.sweep?S.initT:S.fixedT,fi=inhaleFrac();
+  ctx.clearRect(0,0,W,H);
+  if(S.viz==='circle')drawCircle(0,T,fi,waveVal(0,fi),0);else drawWave(0,T,fi,waveVal(0,fi),0);
+}
 
 /* loop — continues indefinitely at the final period */
 function loop(){if(paused||!running)return;animationId=requestAnimationFrame(loop);
@@ -282,6 +298,10 @@ function loop(){if(paused||!running)return;animationId=requestAnimationFrame(loo
   const m=Math.floor(run/60),s=Math.floor(run%60);
   hudElapsed.textContent=`Elapsed: ${m}:${String(s).padStart(2,'0')}`;
   hudPeriod.textContent=`Period: ${T.toFixed(1)} s · In:Ex ${ratioLabel()}`;}
+
+/* open with settings visible and a static preview behind them */
+showPanel();drawIdle();
+addEventListener('resize',()=>{if(!running)drawIdle();},false);
 </script>
 </body>
 </html>

@@ -19,7 +19,7 @@ Copy the app files to a scratch dir and generate a harness page that pre-seeds
 settings and auto-starts (there is no URL API):
 
 - Insert before the app scripts: `<script>localStorage.setItem('bp-settings', JSON.stringify({...}))</script>`
-- Append before `</body>`: a script that calls `document.getElementById('startBtn').click()` after load and `console.log`s state.
+- Append before `</body>`: a script that calls `pauseBtn.click()` after load (the app opens with the panel visible and one Start/Pause button; there is no separate start-session button) and `console.log`s state.
 - Top-level `const`/`function` bindings in the app script (`periods`, `cue`, `panel`, `cvs`, …) are reachable from the harness script; `cue` can be wrapped to count firings.
 
 Screenshot a mid-session frame:
@@ -41,5 +41,5 @@ Screenshot a mid-session frame:
   screenshot/log marker, then kill it.
 - `index.html` historically contains odd Unicode (U+2011 hyphens, U+202F/U+00A0
   spaces) — if an Edit fails to match, hexdump the line.
-- The panel opens by tapping the canvas *while running*; harness can dispatch
+- The panel opens by tapping the canvas (any time); harness can dispatch
   `new PointerEvent('pointerdown',{bubbles:true})` on `cvs`.
