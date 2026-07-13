@@ -35,9 +35,9 @@
 </head>
 <body>
 <canvas id="c"></canvas>
-<div id="hud"><div id="elapsed"></div><div id="period"></div></div>
+<div id="hud"><div id="info"></div></div>
 <div id="panel">
-  <div class="slider" id="fixedRow"><label>Period: <span id="fixedVal">15</span>s</label><input id="fixedRange" type="range" min="4" max="60" step="0.5" value="15"></div>
+  <div class="slider" id="fixedRow"><label>Period: <span id="fixedVal">14.5</span>s</label><input id="fixedRange" type="range" min="4" max="60" step="0.5" value="14.5"></div>
   <div class="row switch"><input id="sweepChk" type="checkbox"><label for="sweepChk">Sweep period (ramp up over time)</label></div>
   <div class="slider sweepRow"><label>Initial Period: <span id="initVal">10</span>s</label><input id="initRange" type="range" min="1" max="60" step="0.5" value="10"></div>
   <div class="slider sweepRow"><label>Final Period: <span id="finalVal">45</span>s</label><input id="finalRange" type="range" min="8" max="60" step="0.5" value="45"></div>
@@ -63,7 +63,7 @@ if ("serviceWorker" in navigator) {
 const RATIOS=[[1,4],[1,3],[1,2],[2,3],[1,1],[3,2],[2,1],[3,1],[4,1]]; // inhale:exhale
 const S={
   sweep:false,   // period sweep off by default — fixed period
-  fixedT:15,     // fixed period (s)
+  fixedT:14.5,   // fixed period (s)
   initT:10, finalT:45, rampM:10,   // sweep parameters
   ratioIdx:2,    // index into RATIOS (2 → 1:2)
   cueMode:1,     // 0 off, 1 inhale, 2 inhale+exhale
@@ -72,7 +72,7 @@ const S={
 try{
   const saved=JSON.parse(localStorage.getItem('bp-settings')||'{}');
   for(const k in S)if(k in saved)S[k]=saved[k];
-  S.fixedT=Math.min(60,Math.max(4,+S.fixedT||15));
+  S.fixedT=Math.min(60,Math.max(4,+S.fixedT||14.5));
   S.initT=Math.min(60,Math.max(1,+S.initT||10));
   S.finalT=Math.min(60,Math.max(8,+S.finalT||45));
   S.rampM=Math.min(60,Math.max(1,+S.rampM||10));
@@ -86,7 +86,7 @@ function ratioLabel(){const [i,e]=RATIOS[S.ratioIdx];return `${i}:${e}`;}
 
 /* DOM refs */
 const cvs = document.getElementById('c'), ctx = cvs.getContext('2d');
-const hudElapsed=document.getElementById('elapsed'), hudPeriod=document.getElementById('period');
+const hudInfo=document.getElementById('info');
 const panel=document.getElementById('panel');
 const pauseBtn=document.getElementById('pauseBtn'), stopBtn=document.getElementById('stopBtn');
 const sweepChk=document.getElementById('sweepChk'), fixedRow=document.getElementById('fixedRow');
@@ -98,13 +98,13 @@ const cueSel=document.getElementById('cueSel'), vizSel=document.getElementById('
 const noSleep=new NoSleep();
 
 /* canvas fit (Hi-DPI aware) */
-let W=0,H=0,amp=0,yC=0;
+let W=0,H=0,amp=0,yC=0,DPR=1;
 function fit(){
-  const dpr=Math.min(2,window.devicePixelRatio||1);
+  DPR=Math.min(2,window.devicePixelRatio||1);
   W=innerWidth;H=innerHeight;
-  cvs.width=W*dpr;cvs.height=H*dpr;
+  cvs.width=W*DPR;cvs.height=H*DPR;
   cvs.style.width=W+'px';cvs.style.height=H+'px';
-  ctx.setTransform(dpr,0,0,dpr,0,0);
+  ctx.setTransform(DPR,0,0,DPR,0,0);
   amp=H*0.30;yC=H/2;
 }
 fit();addEventListener('resize',fit,false);
@@ -144,22 +144,31 @@ function waveVal(p,fi){
 let audioCtx=null;
 function initAudio(){
   try{
+    // iOS 16.4+: route as playback so the ring/silent switch doesn't mute us
+    if('audioSession' in navigator){try{navigator.audioSession.type='playback';}catch(e){}}
     if(!audioCtx)audioCtx=new (window.AudioContext||window.webkitAudioContext)();
     if(audioCtx.state==='suspended')audioCtx.resume();
+    // iOS unlock: play a silent buffer inside the user gesture
+    const b=audioCtx.createBuffer(1,1,22050),src=audioCtx.createBufferSource();
+    src.buffer=b;src.connect(audioCtx.destination);src.start(0);
   }catch(e){console.warn(e.message);}
+}
+function playTone(kind){
+  const t=audioCtx.currentTime;
+  const o=audioCtx.createOscillator(),g=audioCtx.createGain();
+  o.type='sine';o.frequency.value=kind==='inhale'?660:392;
+  g.gain.setValueAtTime(0.0001,t);
+  g.gain.exponentialRampToValueAtTime(0.30,t+0.02);
+  g.gain.exponentialRampToValueAtTime(0.0001,t+0.35);
+  o.connect(g);g.connect(audioCtx.destination);
+  o.start(t);o.stop(t+0.4);
 }
 function cue(kind){
   if(S.cueMode===0)return;
   if(kind==='exhale'&&S.cueMode<2)return;
-  if(audioCtx&&audioCtx.state==='running'){
-    const t=audioCtx.currentTime;
-    const o=audioCtx.createOscillator(),g=audioCtx.createGain();
-    o.type='sine';o.frequency.value=kind==='inhale'?660:392;
-    g.gain.setValueAtTime(0.0001,t);
-    g.gain.exponentialRampToValueAtTime(0.30,t+0.02);
-    g.gain.exponentialRampToValueAtTime(0.0001,t+0.35);
-    o.connect(g);g.connect(audioCtx.destination);
-    o.start(t);o.stop(t+0.4);
+  if(audioCtx){
+    if(audioCtx.state==='running')playTone(kind);
+    else audioCtx.resume().then(()=>{if(audioCtx.state==='running')playTone(kind);}).catch(()=>{});
   }
   if(navigator.vibrate)navigator.vibrate(kind==='inhale'?60:30); // no-op on iOS
 }
@@ -167,7 +176,7 @@ function cue(kind){
 /* wake‑lock */
 let wake=null;async function lockScreen(){try{if('wakeLock'in navigator){wake=await navigator.wakeLock.request('screen');}else{noSleep.enable();}}catch(e){console.warn(e.message);}}
 
-document.addEventListener('visibilitychange',()=>{if(wake&&document.visibilityState==='visible')lockScreen();});
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'){if(wake)lockScreen();if(audioCtx&&audioCtx.state==='suspended')audioCtx.resume().catch(()=>{});}});
 
 /* session state */
 let running=false,paused=false,startTime=0,pauseStart=0,pausedAccum=0,animationId=null,lastP=null;
@@ -220,19 +229,11 @@ function breathGlow(b,hue){
   g.addColorStop(1,'rgba(0,0,0,0)');
   ctx.fillStyle=g;ctx.fillRect(0,0,W,H);
 }
-function phaseLabel(p,fi,T,y){
-  const inh=p<fi;
-  const rem=Math.ceil((inh?(fi-p):(1-p))*T);
-  ctx.textAlign='center';
-  ctx.font='600 26px -apple-system,sans-serif';
-  ctx.fillStyle=inh?'rgba(120,235,190,0.9)':'rgba(140,180,255,0.9)';
-  ctx.fillText(`${inh?'Inhale':'Exhale'} · ${rem}`,W/2,y);
-}
 function drawWave(tIn,T,fi,v,p){
   const inh=p<fi;
   breathGlow((v+1)/2,inh?165:215);
-  const pts=[];
-  for(let x=0;x<=W;x+=2){
+  const pts=[],step=1/DPR; // one segment per device pixel
+  for(let x=0;x<=W;x+=step){
     const ph=(((4*x/W+tIn/T)%1)+1)%1;
     pts.push([x,yC-amp*waveVal(ph,fi)]);
   }
@@ -247,16 +248,12 @@ function drawWave(tIn,T,fi,v,p){
   ctx.beginPath();ctx.moveTo(pts[0][0],pts[0][1]);
   for(const [x,y] of pts)ctx.lineTo(x,y);
   ctx.lineWidth=3;ctx.strokeStyle='#2de0a5';ctx.shadowColor='#2de0a5';ctx.shadowBlur=14;ctx.stroke();ctx.shadowBlur=0;
-  // centre guide
-  ctx.strokeStyle='rgba(255,255,255,0.10)';ctx.lineWidth=1;
-  ctx.beginPath();ctx.moveTo(W/2,yC-amp-16);ctx.lineTo(W/2,yC+amp+16);ctx.stroke();
   // tracking dot with glow
   const yDot=yC-amp*v;
   const dg=ctx.createRadialGradient(W/2,yDot,0,W/2,yDot,26);
   dg.addColorStop(0,'rgba(255,96,96,0.85)');dg.addColorStop(1,'rgba(255,96,96,0)');
   ctx.fillStyle=dg;ctx.beginPath();ctx.arc(W/2,yDot,26,0,7);ctx.fill();
   ctx.fillStyle='#ff6060';ctx.beginPath();ctx.arc(W/2,yDot,8,0,7);ctx.fill();
-  phaseLabel(p,fi,T,yC-amp-36);
 }
 function drawCircle(tIn,T,fi,v,p){
   const inh=p<fi,b=(v+1)/2,hue=inh?165:215;
@@ -271,7 +268,6 @@ function drawCircle(tIn,T,fi,v,p){
   ctx.fillStyle=dg;ctx.beginPath();ctx.arc(W/2,yC,r,0,7);ctx.fill();
   ctx.lineWidth=4;ctx.strokeStyle=`hsl(${hue},75%,62%)`;ctx.shadowColor=`hsl(${hue},75%,62%)`;ctx.shadowBlur=22;
   ctx.beginPath();ctx.arc(W/2,yC,r,0,7);ctx.stroke();ctx.shadowBlur=0;
-  phaseLabel(p,fi,T,yC-rMax-28);
 }
 /* static preview while no session is running */
 function drawIdle(){
@@ -295,9 +291,7 @@ function loop(){if(paused||!running)return;animationId=requestAnimationFrame(loo
   lastP=p;
   ctx.clearRect(0,0,W,H);
   if(S.viz==='circle')drawCircle(tIn,T,fi,v,p);else drawWave(tIn,T,fi,v,p);
-  const m=Math.floor(run/60),s=Math.floor(run%60);
-  hudElapsed.textContent=`Elapsed: ${m}:${String(s).padStart(2,'0')}`;
-  hudPeriod.textContent=`Period: ${T.toFixed(1)} s · In:Ex ${ratioLabel()}`;}
+  hudInfo.textContent=`Elapsed: ${Math.floor(run/60)} min · Period: ${T.toFixed(1)} s`;}
 
 /* open with settings visible and a static preview behind them */
 showPanel();drawIdle();
